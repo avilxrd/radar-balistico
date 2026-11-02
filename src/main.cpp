@@ -3,8 +3,25 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <esp_system.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
 
 // Constantes Globais Úteis
+// MQTT & WiFi
+#define MODULO_ID "5"
+
+constexpr char* WIFI_SSID     = "iot2026";
+constexpr char* WIFI_PASSWORD = "Senhab0@";
+constexpr char* MQTT_BROKER   = "10.150.207.154";
+constexpr int   MQTT_PORT     = 1883;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+char serialBomba[8] = "-----";
+int tempoRestante   = 0;
+bool desafioAtivo   = false;
+
 // Display
 #define OLED_ADDR 0x3C
 #define SCREEN_WIDTH 128
@@ -28,16 +45,18 @@
 #define CENTER_Y 2048
 
 // Alvo
-#define TARGET_RADIUS 3 
+#define TARGET_RADIUS 1.0f
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
+/* Representa um par ordenado de coordenadas no plano */
 struct Point
 {
   float x;
   float y;
 };
 
+/* Representa um alvo inimigo/aliado. */
 class Target
 {
     Point position;
@@ -46,14 +65,143 @@ class Target
     bool active;
 };
 
+/* Representa um projétil atirado pelo jogador em um alvo. */
+#define PROJECTILE_SPEED 20.0f
+
 class Projectile
 {
+public:
   Point previous_position;
   Point position;
+  Point velocity;
   float radius;
-  float speed;
   bool active;
+
+  Projectile()
+    : previous_position({0, 0}),
+      position({0, 0}),
+      velocity({0, 0}),
+      radius(TARGET_RADIUS),
+      active(false) {}
+
+  void launch(Point origin, float direction_x, float direction_y)
+  {
+    float length = sqrt(direction_x * direction_x +
+                        direction_y * direction_y);
+
+    // Não atira se o joystick estiver no centro/deadzone
+    if (length < 0.01f) return;
+
+    direction_x /= length;
+    direction_y /= length;
+
+    position = origin;
+    previous_position = origin;
+
+    velocity.x = direction_x * PROJECTILE_SPEED;
+    velocity.y = -direction_y * PROJECTILE_SPEED;
+
+    active = true;
+  }
+
+  void update(float dt)
+  {
+    if (!active) return;
+
+    previous_position = position;
+    position.x += velocity.x * dt;
+    position.y += velocity.y * dt;
+
+    if (position.x < -radius || position.x > SCREEN_WIDTH + radius ||
+        position.y < -radius || position.y > SCREEN_HEIGHT + radius)
+    {
+      active = false;
+    }
+  }
+
+  void draw(Adafruit_SSD1306& display) const
+  {
+    if (!active) return;
+
+    display.fillCircle(
+      (int)position.x,
+      (int)position.y,
+      (int)radius,
+      SSD1306_WHITE
+    );
+  }
 };
+
+Projectile projectile;
+
+
+/* Funcoes definidas pelo Grupo 1 */
+void callbackMqtt(char* topic, byte* payload, unsigned int length) {
+  char msg[length + 1];
+  memcpy(msg, payload, length);
+  msg[length] = '\0';
+
+  // 1. Estados globais da partida
+  if (strcmp(topic, "jogo/estado") == 0) {
+    if (strcmp(msg, "START") == 0) {
+      desafioAtivo = true;
+      // Iniciar leituras de sensores / habilitar botoes
+    } 
+    else if (strcmp(msg, "RESET") == 0) {
+      desafioAtivo = false;
+      // Resetar variaveis locais e voltar para tela de espera
+    } 
+    else if (strcmp(msg, "VICTORY") == 0 || strcmp(msg, "DEFEAT") == 0) {
+      desafioAtivo = false;
+      // Travar interacoes do jogador
+    }
+  }
+
+  // 2. Serial da partida (recebe no START)
+  else if (strcmp(topic, "jogo/serial") == 0) {
+    strncpy(serialBomba, msg, sizeof(serialBomba));
+    // DICA: Atualizar display do modulo com o serial:
+    // tft.drawString(serialBomba, 10, 10, 2);
+  }
+
+  // 3. Sincronização opcional de tempo
+  else if (strcmp(topic, "jogo/tempo") == 0) {
+    tempoRestante = atoi(msg);
+  }
+
+  // 4. Pistas recebidas de outro módulo
+  else if (strcmp(topic, "jogo/modulo/" MODULO_ID "/dica") == 0) {
+    // Processar dado recebido (ex: msg contem "8310")
+  }
+}
+
+
+void reconectarMQTT() {
+  while (!client.connected()) {
+    if (client.connect("Modulo_" MODULO_ID)) {
+      // Inscricoes obrigatorias
+      client.subscribe("jogo/estado");
+      client.subscribe("jogo/serial");
+
+      // Inscricoes opcionais (comente se nao for usar)
+      client.subscribe("jogo/tempo");
+      client.subscribe("jogo/modulo/" MODULO_ID "/dica");
+    } else {
+      delay(1000);
+    }
+  }
+}
+
+
+// Funcoes de notificacao para a Central
+void registrarSucesso() {
+  client.publish("jogo/modulo/" MODULO_ID "/evento", "SOLVED");
+}
+
+
+void registrarErro() {
+  client.publish("jogo/modulo/" MODULO_ID "/evento", "ERROR");
+}
 
 
 /* Desenha a borda retangular que delimita a área total
@@ -135,7 +283,7 @@ void setup() {
 
   pinMode(JOY_X, INPUT);
   pinMode(JOY_Y, INPUT);
-  pinMode(JOY_B, INPUT_PULLDOWN);
+  pinMode(JOY_B, INPUT_PULLUP);
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) 
   {
@@ -149,20 +297,41 @@ void setup() {
 }
 
 
-void loop() 
+void loop()
 {
-  // float x = analogRead(JOY_X);
-  // float y = analogRead(JOY_Y);
+  // Tempo desde o quadro anterior, em segundos
+  static unsigned long previous_time = millis();
+  unsigned long current_time = millis();
+
+  float dt = (current_time - previous_time) / 1000.0f;
+  previous_time = current_time;
+
   float x = normalizeJoystickAxes(analogRead(JOY_X), CENTER_X, true);
   float y = normalizeJoystickAxes(analogRead(JOY_Y), CENTER_Y);
-  float b = analogRead(JOY_B);
 
-  Serial.printf("X: %.2f  Y: %.2f  B: %.2f\r\n", x, y, b);
+  static bool button_was_pressed = false;
+  bool button_pressed = (digitalRead(JOY_B) == LOW);
+
+  if (button_pressed && !button_was_pressed && !projectile.active)
+  {
+    projectile.launch(
+      {(float)CENTER_GAME_AREA_X, (float)CENTER_GAME_AREA_Y},
+      x,
+      y
+    );
+  }
+
+  button_was_pressed = button_pressed;
+
+  projectile.update(dt);
+
+  Serial.printf("X: %.2f  Y: %.2f  SW: %d\r\n", x, y, button_pressed);
 
   display.clearDisplay();
   drawGameArea();
   drawRadar();
   drawRadarSweep();
+  projectile.draw(display);
   display.display();
 
   delay(50);
