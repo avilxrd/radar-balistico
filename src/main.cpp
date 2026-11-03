@@ -6,201 +6,83 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 
-// Constantes Globais Úteis
-// MQTT & WiFi
-#define MODULO_ID "5"
-
-constexpr char* WIFI_SSID     = "iot2026";
-constexpr char* WIFI_PASSWORD = "Senhab0@";
-constexpr char* MQTT_BROKER   = "10.150.207.154";
-constexpr int   MQTT_PORT     = 1883;
+#include "Config.h"
+#include "Game.h"
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
 char serialBomba[8] = "-----";
-int tempoRestante   = 0;
-bool desafioAtivo   = false;
-
-// Display
-#define OLED_ADDR 0x3C
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-
-#define MAX_GAME_AREA SCREEN_WIDTH*3/4
-#define CENTER_GAME_AREA_X (MAX_GAME_AREA/2)
-#define CENTER_GAME_AREA_Y (SCREEN_HEIGHT/2)
-
-// Radar
-#define RADAR_RADIUS 29
-#define CENTER_RADIUS 1
-
-// Joystick
-#define JOY_Y 33
-#define JOY_X 32
-#define JOY_B 25
-
-#define DEADZONE 100
-#define CENTER_X 2048
-#define CENTER_Y 2048
-
-// Alvo
-#define TARGET_RADIUS 1.0f
+int tempoRestante     = 0;
+bool desafioAtivo     = false;
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-/* Representa um par ordenado de coordenadas no plano */
-struct Point
-{
-  float x;
-  float y;
-};
-
-/* Representa um alvo inimigo/aliado. */
-class Target
-{
-    Point position;
-    float radius;
-    bool enemy;
-    bool active;
-};
-
-/* Representa um projétil atirado pelo jogador em um alvo. */
-#define PROJECTILE_SPEED 20.0f
-
-class Projectile
-{
-public:
-  Point previous_position;
-  Point position;
-  Point velocity;
-  float radius;
-  bool active;
-
-  Projectile()
-    : previous_position({0, 0}),
-      position({0, 0}),
-      velocity({0, 0}),
-      radius(TARGET_RADIUS),
-      active(false) {}
-
-  void launch(Point origin, float direction_x, float direction_y)
-  {
-    float length = sqrt(direction_x * direction_x +
-                        direction_y * direction_y);
-
-    // Não atira se o joystick estiver no centro/deadzone
-    if (length < 0.01f) return;
-
-    direction_x /= length;
-    direction_y /= length;
-
-    position = origin;
-    previous_position = origin;
-
-    velocity.x = direction_x * PROJECTILE_SPEED;
-    velocity.y = -direction_y * PROJECTILE_SPEED;
-
-    active = true;
-  }
-
-  void update(float dt)
-  {
-    if (!active) return;
-
-    previous_position = position;
-    position.x += velocity.x * dt;
-    position.y += velocity.y * dt;
-
-    if (position.x < -radius || position.x > SCREEN_WIDTH + radius ||
-        position.y < -radius || position.y > SCREEN_HEIGHT + radius)
-    {
-      active = false;
-    }
-  }
-
-  void draw(Adafruit_SSD1306& display) const
-  {
-    if (!active) return;
-
-    display.fillCircle(
-      (int)position.x,
-      (int)position.y,
-      (int)radius,
-      SSD1306_WHITE
-    );
-  }
-};
-
 Projectile projectile;
-
 
 /* Funcoes definidas pelo Grupo 1 */
 void callbackMqtt(char* topic, byte* payload, unsigned int length) {
-  char msg[length + 1];
-  memcpy(msg, payload, length);
-  msg[length] = '\0';
+    char msg[length + 1];
+    memcpy(msg, payload, length);
+    msg[length] = '\0';
 
-  // 1. Estados globais da partida
-  if (strcmp(topic, "jogo/estado") == 0) {
-    if (strcmp(msg, "START") == 0) {
-      desafioAtivo = true;
-      // Iniciar leituras de sensores / habilitar botoes
-    } 
-    else if (strcmp(msg, "RESET") == 0) {
-      desafioAtivo = false;
-      // Resetar variaveis locais e voltar para tela de espera
-    } 
-    else if (strcmp(msg, "VICTORY") == 0 || strcmp(msg, "DEFEAT") == 0) {
-      desafioAtivo = false;
-      // Travar interacoes do jogador
+    // 1. Estados globais da partida
+    if (strcmp(topic, "jogo/estado") == 0) {
+        if (strcmp(msg, "START") == 0) {
+            desafioAtivo = true;
+            // Iniciar leituras de sensores / habilitar botoes
+        } 
+        else if (strcmp(msg, "RESET") == 0) {
+            desafioAtivo = false;
+            // Resetar variaveis locais e voltar para tela de espera
+        } 
+        else if (strcmp(msg, "VICTORY") == 0 || strcmp(msg, "DEFEAT") == 0) {
+            desafioAtivo = false;
+            // Travar interacoes do jogador
+        }
     }
-  }
 
-  // 2. Serial da partida (recebe no START)
-  else if (strcmp(topic, "jogo/serial") == 0) {
-    strncpy(serialBomba, msg, sizeof(serialBomba));
-    // DICA: Atualizar display do modulo com o serial:
-    // tft.drawString(serialBomba, 10, 10, 2);
-  }
+    // 2. Serial da partida (recebe no START)
+    else if (strcmp(topic, "jogo/serial") == 0) {
+        strncpy(serialBomba, msg, sizeof(serialBomba));
+        // DICA: Atualizar display do modulo com o serial:
+        // tft.drawString(serialBomba, 10, 10, 2);
+    }
 
-  // 3. Sincronização opcional de tempo
-  else if (strcmp(topic, "jogo/tempo") == 0) {
-    tempoRestante = atoi(msg);
-  }
+    // 3. Sincronização opcional de tempo
+    else if (strcmp(topic, "jogo/tempo") == 0) {
+        tempoRestante = atoi(msg);
+    }
 
-  // 4. Pistas recebidas de outro módulo
-  else if (strcmp(topic, "jogo/modulo/" MODULO_ID "/dica") == 0) {
-    // Processar dado recebido (ex: msg contem "8310")
-  }
+    // 4. Pistas recebidas de outro módulo
+    else if (strcmp(topic, "jogo/modulo/" MODULO_ID "/dica") == 0) {
+        // Processar dado recebido (ex: msg contem "8310")
+    }
 }
-
 
 void reconectarMQTT() {
-  while (!client.connected()) {
-    if (client.connect("Modulo_" MODULO_ID)) {
-      // Inscricoes obrigatorias
-      client.subscribe("jogo/estado");
-      client.subscribe("jogo/serial");
+    while (!client.connected()) {
+        if (client.connect("Modulo_" MODULO_ID)) {
+            // Inscricoes obrigatorias
+            client.subscribe("jogo/estado");
+            client.subscribe("jogo/serial");
 
-      // Inscricoes opcionais (comente se nao for usar)
-      client.subscribe("jogo/tempo");
-      client.subscribe("jogo/modulo/" MODULO_ID "/dica");
-    } else {
-      delay(1000);
+            // Inscricoes opcionais (comente se nao for usar)
+            client.subscribe("jogo/tempo");
+            client.subscribe("jogo/modulo/" MODULO_ID "/dica");
+        } else {
+            delay(1000);
+        }
     }
-  }
 }
-
 
 // Funcoes de notificacao para a Central
 void registrarSucesso() {
-  client.publish("jogo/modulo/" MODULO_ID "/evento", "SOLVED");
+    client.publish("jogo/modulo/" MODULO_ID "/evento", "SOLVED");
 }
 
-
 void registrarErro() {
-  client.publish("jogo/modulo/" MODULO_ID "/evento", "ERROR");
+    client.publish("jogo/modulo/" MODULO_ID "/evento", "ERROR");
 }
 
 
@@ -208,17 +90,17 @@ void registrarErro() {
  * do jogo. */
 void drawGameArea() 
 {
-  // drawRect(X_INICIAL, Y_INICIAL, LARGURA, ALTURA)
-  display.drawRect(0, 0, MAX_GAME_AREA, SCREEN_HEIGHT, SSD1306_WHITE);
-  display.drawRect(3 + MAX_GAME_AREA, 0, (SCREEN_WIDTH-MAX_GAME_AREA-3), SCREEN_HEIGHT, SSD1306_WHITE);
+    // drawRect(X_INICIAL, Y_INICIAL, LARGURA, ALTURA)
+    display.drawRect(0, 0, MAX_GAME_AREA, SCREEN_HEIGHT, SSD1306_WHITE);
+    display.drawRect(3 + MAX_GAME_AREA, 0, (SCREEN_WIDTH-MAX_GAME_AREA-3), SCREEN_HEIGHT, SSD1306_WHITE);
 }
 
 
 /* Desenha a estrutura do radar. */
 void drawRadar()
 {
-  display.drawCircle(CENTER_GAME_AREA_X, CENTER_GAME_AREA_Y, RADAR_RADIUS, SSD1306_WHITE);
-  // display.fillCircle(CENTER_GAME_AREA_X, CENTER_GAME_AREA_Y, CENTER_RADIUS, SSD1306_WHITE);
+    display.drawCircle(CENTER_GAME_AREA_X, CENTER_GAME_AREA_Y, RADAR_RADIUS, SSD1306_WHITE);
+    // display.fillCircle(CENTER_GAME_AREA_X, CENTER_GAME_AREA_Y, CENTER_RADIUS, SSD1306_WHITE);
 }
 
 
@@ -226,22 +108,22 @@ void drawRadar()
 float radar_angle = 0.0f;
 void drawRadarSweep()
 {
-  int end_x = CENTER_GAME_AREA_X + cos(radar_angle) * RADAR_RADIUS;
-  int end_y = CENTER_GAME_AREA_Y + sin(radar_angle) * RADAR_RADIUS;
+    int end_x = CENTER_GAME_AREA_X + cos(radar_angle) * RADAR_RADIUS;
+    int end_y = CENTER_GAME_AREA_Y + sin(radar_angle) * RADAR_RADIUS;
 
-  display.drawLine(
-    CENTER_GAME_AREA_X,
-    CENTER_GAME_AREA_Y,
-    end_x,
-    end_y,
-    SSD1306_WHITE
-  );
+    display.drawLine(
+        CENTER_GAME_AREA_X,
+        CENTER_GAME_AREA_Y,
+        end_x,
+        end_y,
+        SSD1306_WHITE
+    );
 
-  radar_angle += 0.08f;
-  if (radar_angle >= 2.0f * PI)
-  {
-    radar_angle -= 2.0f * PI;
-  }
+    radar_angle += 0.08f;
+    if (radar_angle >= 2.0f * PI)
+    {
+        radar_angle -= 2.0f * PI;
+    }
 }
 
 
@@ -249,90 +131,90 @@ void drawRadarSweep()
  * entre -1.0 e 1.0. */
 float normalizeJoystickAxes(int raw_value, int center, bool invert=false, float deadzone=DEADZONE)
 {
-  int delta = raw_value - center;
+    int delta = raw_value - center;
 
-  // Ignora movimentos dentro da deadzone configurada
-  if (abs(delta) < deadzone) 
-  {
-    return 0.0f;
-  }
+    // Ignora movimentos dentro da deadzone configurada
+    if (abs(delta) < deadzone) 
+    {
+        return 0.0f;
+    }
 
-  float value;
-  if (delta > 0)
-  {
-    value = (float)delta/(4095 - center);
-  }
-  else 
-  {
-    value = (float)delta/center;
-  }
+    float value;
+    if (delta > 0)
+    {
+        value = (float)delta/(4095 - center);
+    }
+    else 
+    {
+        value = (float)delta/center;
+    }
 
-  value = constrain(value, -1.0f, 1.0f);
+    value = constrain(value, -1.0f, 1.0f);
 
-  // Inverte os valores do eixo
-  if (invert) { value = -value; }
+    // Inverte os valores do eixo
+    if (invert) { value = -value; }
 
-  return value;
+    return value;
 }
 
 
 void setup() {
-  Serial.begin(115200);
+    Serial.begin(115200);
 
-  Wire.begin(21, 22); // SDA, SCL
+    Wire.begin(21, 22); // SDA, SCL
 
-  pinMode(JOY_X, INPUT);
-  pinMode(JOY_Y, INPUT);
-  pinMode(JOY_B, INPUT_PULLUP);
+    pinMode(JOY_X, INPUT);
+    pinMode(JOY_Y, INPUT);
+    pinMode(JOY_B, INPUT_PULLUP);
 
-  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) 
-  {
-    Serial.println("Nao foi possivel iniciar o OLED.");
-    while (true) delay(100);
-  }
+    if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) 
+    {
+        Serial.println("Nao foi possivel iniciar o OLED.");
+        while (true) delay(100);
+    }
 
-  randomSeed(esp_random());
-  display.clearDisplay();
-  display.display();
+    randomSeed(esp_random());
+    display.clearDisplay();
+    display.display();
 }
 
 
 void loop()
 {
-  // Tempo desde o quadro anterior, em segundos
-  static unsigned long previous_time = millis();
-  unsigned long current_time = millis();
+    // Tempo desde o quadro anterior, em segundos
+    static unsigned long previous_time = millis();
+    unsigned long current_time = millis();
 
-  float dt = (current_time - previous_time) / 1000.0f;
-  previous_time = current_time;
+    float dt = (current_time - previous_time) / 1000.0f;
+    previous_time = current_time;
 
-  float x = normalizeJoystickAxes(analogRead(JOY_X), CENTER_X, true);
-  float y = normalizeJoystickAxes(analogRead(JOY_Y), CENTER_Y);
+    float x = normalizeJoystickAxes(analogRead(JOY_X), CENTER_X, true);
+    float y = normalizeJoystickAxes(analogRead(JOY_Y), CENTER_Y);
 
-  static bool button_was_pressed = false;
-  bool button_pressed = (digitalRead(JOY_B) == LOW);
+    static bool button_was_pressed = false;
+    bool button_pressed = (digitalRead(JOY_B) == LOW);
 
-  if (button_pressed && !button_was_pressed && !projectile.active)
-  {
-    projectile.launch(
-      {(float)CENTER_GAME_AREA_X, (float)CENTER_GAME_AREA_Y},
-      x,
-      y
-    );
-  }
+    if (button_pressed && !button_was_pressed && !projectile.isActive())
+    {
+        projectile.launch(
+            {(float)CENTER_GAME_AREA_X, (float)CENTER_GAME_AREA_Y},
+            x,
+            y
+        );
+    }
 
-  button_was_pressed = button_pressed;
+    button_was_pressed = button_pressed;
 
-  projectile.update(dt);
+    projectile.update(dt);
 
-  Serial.printf("X: %.2f  Y: %.2f  SW: %d\r\n", x, y, button_pressed);
+    Serial.printf("X: %.2f    Y: %.2f    SW: %d\r\n", x, y, button_pressed);
 
-  display.clearDisplay();
-  drawGameArea();
-  drawRadar();
-  drawRadarSweep();
-  projectile.draw(display);
-  display.display();
+    display.clearDisplay();
+    drawGameArea();
+    drawRadar();
+    drawRadarSweep();
+    projectile.draw(display);
+    display.display();
 
-  delay(50);
+    delay(50);
 }
