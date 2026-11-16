@@ -5,6 +5,7 @@
 #include <esp_system.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <vector>
 
 #include "Config.h"
 #include "Game.h"
@@ -85,78 +86,7 @@ void registrarErro() {
     client.publish("jogo/modulo/" MODULO_ID "/evento", "ERROR");
 }
 
-
-/* Desenha a borda retangular que delimita a área total
- * do jogo. */
-void drawGameArea() 
-{
-    // drawRect(X_INICIAL, Y_INICIAL, LARGURA, ALTURA)
-    display.drawRect(0, 0, MAX_GAME_AREA, SCREEN_HEIGHT, SSD1306_WHITE);
-    display.drawRect(3 + MAX_GAME_AREA, 0, (SCREEN_WIDTH-MAX_GAME_AREA-3), SCREEN_HEIGHT, SSD1306_WHITE);
-}
-
-
-/* Desenha a estrutura do radar. */
-void drawRadar()
-{
-    display.drawCircle(CENTER_GAME_AREA_X, CENTER_GAME_AREA_Y, RADAR_RADIUS, SSD1306_WHITE);
-    // display.fillCircle(CENTER_GAME_AREA_X, CENTER_GAME_AREA_Y, CENTER_RADIUS, SSD1306_WHITE);
-}
-
-
-/* Desenha o efeito de varredura que passa sobre o radar. */
-float radar_angle = 0.0f;
-void drawRadarSweep()
-{
-    int end_x = CENTER_GAME_AREA_X + cos(radar_angle) * RADAR_RADIUS;
-    int end_y = CENTER_GAME_AREA_Y + sin(radar_angle) * RADAR_RADIUS;
-
-    display.drawLine(
-        CENTER_GAME_AREA_X,
-        CENTER_GAME_AREA_Y,
-        end_x,
-        end_y,
-        SSD1306_WHITE
-    );
-
-    radar_angle += 0.08f;
-    if (radar_angle >= 2.0f * PI)
-    {
-        radar_angle -= 2.0f * PI;
-    }
-}
-
-
-/* Converte os valores brutos lidos do Joystick para valores normalizados
- * entre -1.0 e 1.0. */
-float normalizeJoystickAxes(int raw_value, int center, bool invert=false, float deadzone=DEADZONE)
-{
-    int delta = raw_value - center;
-
-    // Ignora movimentos dentro da deadzone configurada
-    if (abs(delta) < deadzone) 
-    {
-        return 0.0f;
-    }
-
-    float value;
-    if (delta > 0)
-    {
-        value = (float)delta/(4095 - center);
-    }
-    else 
-    {
-        value = (float)delta/center;
-    }
-
-    value = constrain(value, -1.0f, 1.0f);
-
-    // Inverte os valores do eixo
-    if (invert) { value = -value; }
-
-    return value;
-}
-
+std::vector<Target> targets;
 
 void setup() {
     Serial.begin(115200);
@@ -174,11 +104,15 @@ void setup() {
     }
 
     randomSeed(esp_random());
+
+    targets = generateRandomTargets({CENTER_GAME_AREA_X, CENTER_GAME_AREA_Y}, TARGET_RADIUS, RADAR_RADIUS, 5);
+
     display.clearDisplay();
     display.display();
 }
 
 
+Line radar_line;
 void loop()
 {
     // Tempo desde o quadro anterior, em segundos
@@ -206,14 +140,31 @@ void loop()
     button_was_pressed = button_pressed;
 
     projectile.update(dt);
-
+    
     Serial.printf("X: %.2f    Y: %.2f    SW: %d\r\n", x, y, button_pressed);
-
+    
     display.clearDisplay();
-    drawGameArea();
-    drawRadar();
-    drawRadarSweep();
+
+    drawGameArea(display);
+    drawRadar(display);
+    radar_line = drawRadarSweep(display);
+ 
+    for (int i=0; i<5; i++)
+    {
+        if (hitsTarget(targets[i], radar_line.start, radar_line.end))
+        {
+            // Radar passando pelo alvo
+            targets[i].active = true;
+        }
+        else
+        {
+            // Radar fora do alvo
+            targets[i].active = false;
+        }
+        targets[i].draw(display);
+    }
     projectile.draw(display);
+    
     display.display();
 
     delay(50);

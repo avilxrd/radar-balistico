@@ -19,7 +19,7 @@ constexpr int   MQTT_PORT     = 1883;
 
 // Radar
 #define RADAR_RADIUS 29
-#define CENTER_RADIUS 1
+#define CENTER_RADIUS 5
 
 // Joystick
 #define JOY_Y 33
@@ -31,7 +31,11 @@ constexpr int   MQTT_PORT     = 1883;
 #define CENTER_Y 2048
 
 // Alvo
-#define TARGET_RADIUS 1.0f
+#define TARGET_RADIUS 2
 
 // Projétil
+#define PROJECTILE_RADIUS 1
 #define PROJECTILE_SPEED 20.0f
+
+#define WIND_X 0
+#define WIND_Y 0
