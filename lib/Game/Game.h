@@ -81,8 +81,12 @@ void drawRadar(Adafruit_SSD1306& display);
 /* Desenha o efeito de varredura que passa sobre o radar. */
 Line drawRadarSweep(Adafruit_SSD1306& display);
 
+/*  */
+void drawAim(Adafruit_SSD1306& display, float joy_x, float joy_y);
+
 /* Verifica se um segmento de reta cruza um círculo. */
 bool hitsTarget(Target target, Point start_point, Point end_point);
+
 
 
 float clamp(float val, float minVal, float maxVal);

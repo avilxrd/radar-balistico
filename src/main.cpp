@@ -10,12 +10,13 @@
 #include "Config.h"
 #include "Game.h"
 
+/* Variáveis Globais */
+char serialBomba[8] = "-----";
+int  tempoRestante  = 0;
+bool desafioAtivo   = false;
+
 WiFiClient espClient;
 PubSubClient client(espClient);
-
-char serialBomba[8] = "-----";
-int tempoRestante     = 0;
-bool desafioAtivo     = false;
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
@@ -115,57 +116,55 @@ void setup() {
 Line radar_line;
 void loop()
 {
-    // Tempo desde o quadro anterior, em segundos
+    // Tempo desde o quadro anterior em segundos
     static unsigned long previous_time = millis();
-    unsigned long current_time = millis();
+    unsigned long        current_time  = millis();
 
     float dt = (current_time - previous_time) / 1000.0f;
     previous_time = current_time;
 
+    // Posição dos eixos do joystick
     float x = normalizeJoystickAxes(analogRead(JOY_X), CENTER_X, true);
     float y = normalizeJoystickAxes(analogRead(JOY_Y), CENTER_Y);
 
+
     static bool button_was_pressed = false;
-    bool button_pressed = (digitalRead(JOY_B) == LOW);
+    bool        button_pressed     = (digitalRead(JOY_B) == LOW);
 
     if (button_pressed && !button_was_pressed && !projectile.isActive())
     {
-        projectile.launch(
-            {(float)CENTER_GAME_AREA_X, (float)CENTER_GAME_AREA_Y},
-            x,
-            y
-        );
+        projectile.launch( {(float)CENTER_GAME_AREA_X, (float)CENTER_GAME_AREA_Y}, x, y );
     }
 
     button_was_pressed = button_pressed;
 
     projectile.update(dt);
     
-    Serial.printf("X: %.2f    Y: %.2f    SW: %d\r\n", x, y, button_pressed);
+    // Serial.printf("X: %.2f    Y: %.2f    SW: %d\r\n", x, y, button_pressed);
     
     display.clearDisplay();
-
     drawGameArea(display);
     drawRadar(display);
     radar_line = drawRadarSweep(display);
+    drawAim(display, x, y);
  
     for (int i=0; i<5; i++)
     {
         if (hitsTarget(targets[i], radar_line.start, radar_line.end))
         {
-            // Radar passando pelo alvo
-            targets[i].active = true;
+            targets[i].active = true; // Radar passando pelo alvo
         }
         else
         {
-            // Radar fora do alvo
-            targets[i].active = false;
+            targets[i].active = false; // Radar fora do alvo
         }
+
         targets[i].draw(display);
     }
+
     projectile.draw(display);
     
     display.display();
 
-    delay(50);
+    // delay(50);
 }

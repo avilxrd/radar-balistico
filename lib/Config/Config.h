@@ -39,3 +39,4 @@ constexpr int   MQTT_PORT     = 1883;
 
 #define WIND_X 0
 #define WIND_Y 0
+

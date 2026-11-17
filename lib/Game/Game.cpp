@@ -172,7 +172,7 @@ void drawGameArea(Adafruit_SSD1306& display)
 void drawRadar(Adafruit_SSD1306& display)
 {
     display.drawCircle(CENTER_GAME_AREA_X, CENTER_GAME_AREA_Y, RADAR_RADIUS, SSD1306_WHITE);
-    display.drawCircle(CENTER_GAME_AREA_X, CENTER_GAME_AREA_Y, CENTER_RADIUS, SSD1306_WHITE);
+    // display.drawCircle(CENTER_GAME_AREA_X, CENTER_GAME_AREA_Y, CENTER_RADIUS, SSD1306_WHITE);
 }
 
 float radar_angle = 0.0f;
@@ -253,4 +253,64 @@ bool hitsTarget(Target target, Point start_point, Point end_point)
     }
 
     return false;
+}
+
+/*  */
+void drawAim(Adafruit_SSD1306& display, float joy_X, float joy_y)
+{
+    Point start = {CENTER_GAME_AREA_X, CENTER_GAME_AREA_Y};
+
+    const int radius = 2;
+    const float aimDistance = CENTER_RADIUS;
+
+    // Normaliza o vetor do joystick
+    float magnitude = sqrt(joy_X * joy_X + joy_y * joy_y);
+
+    // Evita divisão por zero
+    if (magnitude < 0.1f)
+    {
+        return;
+    }
+
+    float dirX = joy_X / magnitude;
+    float dirY = joy_y / magnitude;
+
+    // Calcula a ponta da mira
+    int endX = start.x + aimDistance * dirX;
+    int endY = start.y - aimDistance * dirY;
+
+    // Vetor perpendicular à direção
+    float perpX = -dirY;
+    float perpY = dirX;
+
+    // Largura da mira
+    const int aimWidth = 4;
+
+    // Pontas da mira
+    int x1 = start.x + perpX * aimWidth;
+    int y1 = start.y + perpY * aimWidth;
+
+    int x2 = start.x - perpX * aimWidth;
+    int y2 = start.y + perpY * aimWidth;
+
+    // Centro
+    display.fillCircle(
+        start.x,
+        start.y,
+        radius,
+        SSD1306_WHITE
+    );
+
+    // Mira
+    display.drawLine(
+        x1, y1,
+        endX, endY,
+        SSD1306_WHITE
+    );
+
+    display.drawLine(
+        x2, y2,
+        endX, endY,
+        SSD1306_WHITE
+    );
 }
