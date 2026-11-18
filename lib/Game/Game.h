@@ -84,10 +84,10 @@ Line drawRadarSweep(Adafruit_SSD1306& display);
 /*  */
 void drawAim(Adafruit_SSD1306& display, float joy_x, float joy_y);
 
-/* Verifica se um segmento de reta cruza um círculo. */
+/* Verifica se um segmento de reta cruza um alvo. */
 bool hitsTarget(Target target, Point start_point, Point end_point);
 
+/* Função genérica que verifica se um segmento de reta passa por um círculo. */
+bool intercept(Line reta, Point center, float radius);
 
-
-float clamp(float val, float minVal, float maxVal);
-Point encontrarPontoMaisProximoNoSegmento(Point A, Point B, Point centroCirculo);
+bool hits(Target target, Projectile projectile);

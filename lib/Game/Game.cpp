@@ -164,7 +164,6 @@ float normalizeJoystickAxes(int raw_value, int center, bool invert, float deadzo
 
 void drawGameArea(Adafruit_SSD1306& display) 
 {
-    // drawRect(X_INICIAL, Y_INICIAL, LARGURA, ALTURA)
     display.drawRect(0, 0, MAX_GAME_AREA, SCREEN_HEIGHT, SSD1306_WHITE);
     display.drawRect(3 + MAX_GAME_AREA, 0, (SCREEN_WIDTH-MAX_GAME_AREA-3), SCREEN_HEIGHT, SSD1306_WHITE);
 }
@@ -172,7 +171,6 @@ void drawGameArea(Adafruit_SSD1306& display)
 void drawRadar(Adafruit_SSD1306& display)
 {
     display.drawCircle(CENTER_GAME_AREA_X, CENTER_GAME_AREA_Y, RADAR_RADIUS, SSD1306_WHITE);
-    // display.drawCircle(CENTER_GAME_AREA_X, CENTER_GAME_AREA_Y, CENTER_RADIUS, SSD1306_WHITE);
 }
 
 float radar_angle = 0.0f;
@@ -201,116 +199,70 @@ Line drawRadarSweep(Adafruit_SSD1306& display)
     return line;
 }
 
-float calcularDistancia(Point p1, Point p2) {
+float calculateDistance(Point p1, Point p2) 
+{
     float dx = p1.x - p2.x;
     float dy = p1.y - p2.y;
     return std::sqrt(dx * dx + dy * dy);
 }
 
-// Função auxiliar para limitar um valor entre um mínimo e um máximo
-float clamp(float val, float minVal, float maxVal) {
-    if (val < minVal) return minVal;
-    if (val > maxVal) return maxVal;
+float clamp(float val, float min_val, float max_val)
+{
+    if (val < min_val) return min_val;
+    if (val > max_val) return max_val;
     return val;
 }
 
-// Retorna o ponto do segmento AB mais próximo do centro do círculo
-Point encontrarPontoMaisProximoNoSegmento(Point A, Point B, Point centroCirculo) {
-    float ab_x = B.x - A.x;
-    float ab_y = B.y - A.y;
-    float ac_x = centroCirculo.x - A.x;
-    float ac_y = centroCirculo.y - A.y;
+bool intercept(Line reta, Point center, float radius)
+{
+    Point a  = reta.start;
+    Point b  = reta.end;
+    Point c  = center;
 
-    float ab_len_sq = ab_x * ab_x + ab_y * ab_y;
+    Point ab, ac;
 
-    // Se A e B forem o mesmo ponto, o mais próximo é o próprio ponto A
-    if (ab_len_sq == 0.0f) {
-        return A;
-    }
+    // Vetor AB
+    ab.x = b.x - a.x;  
+    ab.y = b.y - a.y;  
 
-    // Projeção escalar (t) do centro na linha AB
-    float t = (ac_x * ab_x + ac_y * ab_y) / ab_len_sq;
+    // Vetor AC
+    ac.x = c.x - a.x;
+    ac.y = c.y - a.y;
 
-    // LIMITA (clamp) o 't' estritamente entre 0.0 e 1.0 para ficar dentro do segmento
-    t = clamp(t, 0.0f, 1.0f);
+    float ort = ac.x * ab.x + ac.y * ab.y;
+    float nor = ab.x * ab.x + ab.y * ab.y;
+    float t   = ort/nor;
 
-    // Calcula o ponto final usando o t limitado
-    Point pontoMaisProximo;
-    pontoMaisProximo.x = A.x + t * ab_x;
-    pontoMaisProximo.y = A.y + t * ab_y;
+    t = clamp(t, 0, 1);
 
-    return pontoMaisProximo;
+    // Encontrar o ponto mais prox, P = A + t AB
+    Point p;
+    p.x = a.x + t * ab.x;
+    p.y = a.y + t * ab.y;
+
+    // Distancia d(P, C)
+    float dpc = calculateDistance(p, c);
+
+    if (dpc <= radius) return true;
+    return false;
 }
 
-bool hitsTarget(Target target, Point start_point, Point end_point)
+bool hits(Target target, Projectile projectile)
 {
-    Point close = encontrarPontoMaisProximoNoSegmento(start_point, end_point, target.position);
+    float r1 = target.radius;
+    Point c1 = target.position;
+    
+    float r2 = projectile.radius;
+    Point c2 = projectile.position;
 
-    // Acertou
-    if (calcularDistancia(close, target.position) <= target.radius)
+    float d  = calculateDistance(c1, c2);
+
+    if ( ((std::abs(r1 - r2) < d) && (d < r1+r2)) || 
+           d == r1+r2 || d == std::abs(r1-r2))
     {
+        Serial.println("acertou");
         return true;
     }
 
     return false;
-}
-
-/*  */
-void drawAim(Adafruit_SSD1306& display, float joy_X, float joy_y)
-{
-    Point start = {CENTER_GAME_AREA_X, CENTER_GAME_AREA_Y};
-
-    const int radius = 2;
-    const float aimDistance = CENTER_RADIUS;
-
-    // Normaliza o vetor do joystick
-    float magnitude = sqrt(joy_X * joy_X + joy_y * joy_y);
-
-    // Evita divisão por zero
-    if (magnitude < 0.1f)
-    {
-        return;
-    }
-
-    float dirX = joy_X / magnitude;
-    float dirY = joy_y / magnitude;
-
-    // Calcula a ponta da mira
-    int endX = start.x + aimDistance * dirX;
-    int endY = start.y - aimDistance * dirY;
-
-    // Vetor perpendicular à direção
-    float perpX = -dirY;
-    float perpY = dirX;
-
-    // Largura da mira
-    const int aimWidth = 4;
-
-    // Pontas da mira
-    int x1 = start.x + perpX * aimWidth;
-    int y1 = start.y + perpY * aimWidth;
-
-    int x2 = start.x - perpX * aimWidth;
-    int y2 = start.y + perpY * aimWidth;
-
-    // Centro
-    display.fillCircle(
-        start.x,
-        start.y,
-        radius,
-        SSD1306_WHITE
-    );
-
-    // Mira
-    display.drawLine(
-        x1, y1,
-        endX, endY,
-        SSD1306_WHITE
-    );
-
-    display.drawLine(
-        x2, y2,
-        endX, endY,
-        SSD1306_WHITE
-    );
 }

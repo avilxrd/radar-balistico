@@ -146,25 +146,23 @@ void loop()
     drawGameArea(display);
     drawRadar(display);
     radar_line = drawRadarSweep(display);
-    drawAim(display, x, y);
- 
+
     for (int i=0; i<5; i++)
     {
-        if (hitsTarget(targets[i], radar_line.start, radar_line.end))
+        if (intercept(radar_line, targets[i].position, targets[i].radius) && targets[i].active == true)
         {
-            targets[i].active = true; // Radar passando pelo alvo
+            targets[i].draw(display);
         }
-        else
+    
+        if (hits(targets[i], projectile) && targets[i].active == true)
         {
-            targets[i].active = false; // Radar fora do alvo
+            targets[i].active = false;
         }
-
-        targets[i].draw(display);
     }
 
     projectile.draw(display);
     
     display.display();
 
-    // delay(50);
+    delay(30);
 }
